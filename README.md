@@ -1,5 +1,7 @@
 # Translate Tool
 
+[![Actions Status](https://github.com/hamaluik/translatetool/workflows/Rust/badge.svg)](https://github.com/hamaluik/translatetool/actions) [![GitHub license](https://img.shields.io/badge/license-Apache%202-blue.svg)](https://raw.githubusercontent.com/hamaluik/translatetool/master/LICENSE)
+
 Tool for using Google Cloud to automatically translate simple Fluent `.flt` files.
 
 ## Compiling
