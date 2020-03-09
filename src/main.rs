@@ -54,10 +54,10 @@ fn load_strings<P: AsRef<Path>, S: ToString>(source: P, locale: S) -> Result<Has
                             {
                                 variables.push(id.name.to_owned());
                             } else {
-                                variables.push(format!("___{}___", variables.len()));
+                                variables.push(format!("unparsable-var-{}", variables.len()));
                             }
                         } else {
-                            variables.push(format!("___{}___", variables.len()));
+                            variables.push(format!("unparsable-var-{}", variables.len()));
                         }
                     }
                 }
@@ -72,6 +72,13 @@ fn load_strings<P: AsRef<Path>, S: ToString>(source: P, locale: S) -> Result<Has
     }
 
     Ok(strings)
+}
+
+fn emplace_vars(mut text: String, vars: Vec<String>) -> String {
+    for var in vars.into_iter() {
+        text = text.replacen("___", &format!("{{ ${} }}", var), 1);
+    }
+    text
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -119,10 +126,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let (token, project_id) = get_token_and_project_id(&matches)?;
     let from_file = matches.value_of("from").unwrap();
+    let diff_path: Option<&str> = matches.value_of("diff");
     let locale = matches
         .value_of("locale")
         .ok_or(errors::Errors::MissingLanguage)?;
-    let out_path = matches.value_of("outpath").unwrap();
+    let out_path = Path::new(matches.value_of("outpath").unwrap());
+    fs::create_dir_all(out_path)?;
+    let out_path = out_path.join(format!("{}.flt", locale));
 
     let translator = translate::Translator::new(&token, &project_id, locale);
     let available_languages = translator.available_languages()?;
@@ -131,52 +141,108 @@ fn main() -> Result<(), Box<dyn Error>> {
         .find(|lang| lang.language_code == locale)
         .ok_or(errors::Errors::InvalidLanguage)?;
 
-    let english_source = load_strings(from_file, "en")?;
+    let mut english_source = load_strings(from_file, "en")?;
+    let old_english_source: HashMap<String, String> =
+        if out_path.exists() {
+            if let Some(diff_path) = diff_path {
+                load_strings(diff_path, "en")?
+                    .drain()
+                    .map(|(term, (text, vars))| (term, emplace_vars(text, vars)))
+                    .collect()
+            }
+            else {
+                HashMap::new()
+            }
+        }
+        else {
+            HashMap::new()
+        };
+    let old_translations: HashMap<String, String> =
+        if out_path.exists() {
+            load_strings(&out_path, locale)?
+                .drain()
+                .map(|(term, (text, vars))| (term, emplace_vars(text, vars)))
+                .collect()
+        }
+        else {
+            HashMap::new()
+        };
 
     let max_key_width = english_source.keys().map(|k| k.len()).max().unwrap();
-    let pb = indicatif::ProgressBar::new(english_source.len() as u64);
+    let pb = indicatif::ProgressBar::new(english_source
+        .iter()
+        .filter(|(k, v)| {
+            let term: &str = *k;
+            let (text, vars): &(String, Vec<String>) = v;
+
+            if let Some(old_text) = old_english_source.get(term) {
+                // the term did exist, but the text has been updated, so we need
+                // to re-translate
+                let text = emplace_vars(text.clone(), vars.clone());
+                &text != old_text
+            }
+            else {
+                // the term did _not_ exist, so we need a translations
+                true
+            }
+        })
+        .count() as u64);
     pb.set_style(indicatif::ProgressStyle::default_bar().template(&format!(
         "{{spinner}} [{{elapsed_precise}}] [{{wide_bar}}] {{prefix:{}}} {{pos}}/{{len}} ({{eta}})",
         max_key_width
     )));
-    let translations: Result<HashMap<String, String>, Box<dyn Error>> = english_source
-        .iter()
+    let new_translations: Result<HashMap<String, String>, Box<dyn Error>> = english_source
+        .drain()
+        .filter(|(k, v)| {
+            let term: &str = k;
+            let (text, vars): &(String, Vec<String>) = v;
+
+            if let Some(old_text) = old_english_source.get(term) {
+                // the term did exist, but the text has been updated, so we need
+                // to re-translate
+                let text = emplace_vars(text.clone(), vars.clone());
+                &text != old_text
+            }
+            else {
+                // the term did _not_ exist, so we need a translations
+                true
+            }
+        })
         .enumerate()
-        .map(|(i, (key, (text, variables)))| {
+        .map(|(i, (term, (text, variables)))| {
             pb.set_position(i as u64);
-            pb.set_prefix(key);
+            pb.set_prefix(&term);
 
             let mut translation: String =
-                if key == "language-name" && text == "English" {
+                if term == "language-name" && text == "English" {
                     translator.translate("<lang name>")?
                 } else {
                     translator.translate(&text)?
                 };
 
             // reapply our variables
-            for var in variables.iter() {
-                translation = translation.replacen("___", &format!("{{ ${} }}", var), 1);
-            }
+            translation = emplace_vars(translation, variables);
 
-            Ok((key.to_owned(), translation))
+            Ok((term.to_owned(), translation))
         })
         .collect();
-    let translations = translations?;
+    let mut new_translations = new_translations?;
     pb.finish_with_message("translation complete!");
 
-    let path = PathBuf::from(out_path);
-    fs::create_dir_all(path)?;
+    // now merge the existing translations together with the new ones
+    let mut translations = old_translations;
+    for (term, translation) in new_translations.drain() {
+        translations.insert(term, translation);
+    }
 
-    let mut path = PathBuf::from(out_path);
-    path.push(format!("{}.flt", locale));
-    let f = fs::File::create(path.clone())?;
+    let f = fs::File::create(&out_path)?;
     let mut file = BufWriter::new(&f);
 
     for (term, translation) in translations.iter() {
         let message = mung::decode_entities(translation);
         file.write_fmt(format_args!("{} = {}\n\n", term, message))?;
     }
-    println!("translations saved to file: {}", path.display());
+    println!("translations saved to file: {}", out_path.display());
 
     Ok(())
 }

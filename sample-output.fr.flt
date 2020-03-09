@@ -1,10 +1,10 @@
-hello-world = Salut, { $who }!
+shared-photos = { $user_name } a ajouté { $unparsable-var-1 } de nouvelles photos.
 
 html-test = Je suis <em>très</em> content de te voir!
 
-language-name = Français
-
 liked-comment = { $user_name } a aimé votre commentaire sur leur message.
 
-shared-photos = { $user_name } a ajouté { $___1___ } de nouvelles photos.
+hello-world = Salut, { $who }!
+
+language-name = Français
 
