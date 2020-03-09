@@ -1,12 +1,10 @@
-language-name = Français
-
-hello-world = Bonjour, { $who }!
+hello-world = Salut, { $who }!
 
 html-test = Je suis <em>très</em> content de te voir!
 
-range-of-motion-test = Test d'amplitude de mouvement
+language-name = Français
 
-shared-photos = { $user_name } ajouté { $___1___ } nouvelles photos.
+liked-comment = { $user_name } a aimé votre commentaire sur leur message.
 
-liked-comment = { $user_name } a aimé votre commentaire sur son post.
+shared-photos = { $user_name } a ajouté { $___1___ } de nouvelles photos.
 

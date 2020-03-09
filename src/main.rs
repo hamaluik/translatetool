@@ -5,7 +5,7 @@ use std::error::Error;
 use std::fs;
 use std::io::prelude::*;
 use std::io::BufWriter;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 mod cli;
 mod errors;
@@ -28,6 +28,50 @@ fn get_token_and_project_id(
     let project_id = credentials.get_project_id();
 
     Ok((token, project_id))
+}
+
+fn load_strings<P: AsRef<Path>, S: ToString>(source: P, locale: S) -> Result<HashMap<String, (String, Vec<String>)>, Box<dyn Error>> {
+    let source_contents = fs::read_to_string(source)?;
+    let resource =
+        FluentResource::try_new(source_contents).map_err(|_| errors::Errors::CantParseResource)?;
+    let mut bundle = FluentBundle::new(&[locale]);
+    bundle
+        .add_resource(&resource)
+        .map_err(|_| errors::Errors::CantParseResource)?;
+
+    let mut strings: HashMap<String, (String, Vec<String>)> = HashMap::with_capacity(bundle.entries.len());
+    for (term, entry) in bundle.entries.iter() {
+        // extract all the variables from this message
+        let mut variables: Vec<String> = Vec::new();
+        if let fluent_bundle::entry::Entry::Message(msg) = entry {
+            if let Some(pattern) = &msg.value {
+                for element in pattern.elements.iter() {
+                    if let fluent_syntax::ast::PatternElement::Placeable(expr) = element {
+                        if let fluent_syntax::ast::Expression::InlineExpression(iexpr) = expr {
+                            if let fluent_syntax::ast::InlineExpression::VariableReference {
+                                id,
+                            } = iexpr
+                            {
+                                variables.push(id.name.to_owned());
+                            } else {
+                                variables.push(format!("___{}___", variables.len()));
+                            }
+                        } else {
+                            variables.push(format!("___{}___", variables.len()));
+                        }
+                    }
+                }
+            }
+        }
+
+        // get the text of the string
+        let (text, _errs) = bundle.format(term, None).unwrap();
+
+        // save it
+        strings.insert(term.to_owned(), (text, variables));
+    }
+
+    Ok(strings)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -87,86 +131,37 @@ fn main() -> Result<(), Box<dyn Error>> {
         .find(|lang| lang.language_code == locale)
         .ok_or(errors::Errors::InvalidLanguage)?;
 
-    let from_contents = fs::read_to_string(PathBuf::from(from_file))?;
+    let english_source = load_strings(from_file, "en")?;
 
-    // attempt to get the order of the entries
-    let syntax_resource = fluent_syntax::parser::parse(&from_contents).map_err(|e| {
-        eprintln!("failed to parse english entries: {:?}", e.1);
-        "failed to parse entries"
-    })?;
-    let mut entry_key_order: HashMap<String, usize> =
-        HashMap::with_capacity(syntax_resource.body.len());
-    for (i, entry) in syntax_resource.body.iter().enumerate() {
-        if let fluent_syntax::ast::ResourceEntry::Entry(entry) = entry {
-            if let fluent_syntax::ast::Entry::Message(message) = entry {
-                entry_key_order.insert(message.id.name.to_owned(), i);
-            }
-        }
-    }
-
-    let resource =
-        FluentResource::try_new(from_contents).map_err(|_| errors::Errors::CantParseResource)?;
-    let mut bundle = FluentBundle::new(&["en"]);
-    bundle
-        .add_resource(&resource)
-        .map_err(|_| errors::Errors::CantParseResource)?;
-
-    let max_key_width = bundle.entries.keys().map(|k| k.len()).max().unwrap();
-    let pb = indicatif::ProgressBar::new(bundle.entries.len() as u64);
+    let max_key_width = english_source.keys().map(|k| k.len()).max().unwrap();
+    let pb = indicatif::ProgressBar::new(english_source.len() as u64);
     pb.set_style(indicatif::ProgressStyle::default_bar().template(&format!(
         "{{spinner}} [{{elapsed_precise}}] [{{wide_bar}}] {{prefix:{}}} {{pos}}/{{len}} ({{eta}})",
         max_key_width
     )));
-    let mut translations: Vec<(String, Option<String>)> = bundle
-        .entries
+    let translations: Result<HashMap<String, String>, Box<dyn Error>> = english_source
         .iter()
         .enumerate()
-        .map(|(i, (key, entry))| {
+        .map(|(i, (key, (text, variables)))| {
             pb.set_position(i as u64);
             pb.set_prefix(key);
 
-            // extract all the variables from this message
-            let mut variables: Vec<String> = Vec::new();
-            if let fluent_bundle::entry::Entry::Message(msg) = entry {
-                if let Some(pattern) = &msg.value {
-                    for element in pattern.elements.iter() {
-                        if let fluent_syntax::ast::PatternElement::Placeable(expr) = element {
-                            if let fluent_syntax::ast::Expression::InlineExpression(iexpr) = expr {
-                                if let fluent_syntax::ast::InlineExpression::VariableReference {
-                                    id,
-                                } = iexpr
-                                {
-                                    variables.push(id.name.to_owned());
-                                } else {
-                                    variables.push(format!("___{}___", variables.len()));
-                                }
-                            } else {
-                                variables.push(format!("___{}___", variables.len()));
-                            }
-                        }
-                    }
-                }
-            }
-
-            let (text, _errs) = bundle.format(key, None).unwrap();
-            let mut translation = if key == "language-name" && text == "English" {
-                (key.clone(), translator.translate("<lang name>").ok())
-            } else {
-                (key.clone(), translator.translate(&text).ok())
-            };
+            let mut translation: String =
+                if key == "language-name" && text == "English" {
+                    translator.translate("<lang name>")?
+                } else {
+                    translator.translate(&text)?
+                };
 
             // reapply our variables
-            if let Some(translated) = translation.1 {
-                let mut trans: String = translated.clone();
-                for var in variables.iter() {
-                    trans = trans.replacen("___", &format!("{{ ${} }}", var), 1);
-                }
-                translation.1 = Some(trans);
+            for var in variables.iter() {
+                translation = translation.replacen("___", &format!("{{ ${} }}", var), 1);
             }
 
-            translation
+            Ok((key.to_owned(), translation))
         })
         .collect();
+    let translations = translations?;
     pb.finish_with_message("translation complete!");
 
     let path = PathBuf::from(out_path);
@@ -177,18 +172,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     let f = fs::File::create(path.clone())?;
     let mut file = BufWriter::new(&f);
 
-    // sort the translations based on their original order in the file
-    translations.sort_unstable_by(|a, b| {
-        let order_a: usize = *entry_key_order.get(&a.0).unwrap_or(&0);
-        let order_b: usize = *entry_key_order.get(&b.0).unwrap_or(&0);
-        order_a.cmp(&order_b)
-    });
-
-    for translation in translations {
-        let message = translation.1.unwrap_or_else(|| "!UNTRANSLATED!".to_owned());
-        let message = mung::decode_entities(&message);
-
-        file.write_fmt(format_args!("{} = {}\n\n", translation.0, message))?;
+    for (term, translation) in translations.iter() {
+        let message = mung::decode_entities(translation);
+        file.write_fmt(format_args!("{} = {}\n\n", term, message))?;
     }
     println!("translations saved to file: {}", path.display());
 

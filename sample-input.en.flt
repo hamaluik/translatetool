@@ -4,8 +4,6 @@ hello-world = Hello, { $who }!
 
 html-test = I am <em>very</em> glad to see you!
 
-range-of-motion-test = Range of Motion Test
-
 shared-photos =
     { $user_name } { $photo_count ->
         [0] hasn't added any photos yet
