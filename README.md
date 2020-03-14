@@ -13,7 +13,7 @@ Tool for using Google Cloud to automatically translate simple Fluent `.flt` file
 
 ```
 $ tt --help
-tt 1.3.0
+tt 1.4.1
 Kenton Hamaluik <kenton@rehabtronics.com>
 
 
@@ -28,7 +28,8 @@ OPTIONS:
     -c, --credentials <FILE>    the file containing the credentials for Google Cloud APIs. See
                                 https://developers.google.com/accounts/docs/application-default-credentials for more
                                 information. [default: credentials.json]
-    -f, --from <FILE>           the english translation file to take strings from [default: en.flt]
+    -d, --diff <FILE>           an optional English translation file to diff the terms from to mimimize re-translations
+    -f, --from <FILE>           the English translation file to take strings from [default: en.flt]
     -l, --locale <LOCALE>       the locale to translate into ("fr", "it", etc)
     -o, --outpath <PATH>        the path to write the resulting .flt file into [default: .]
 
@@ -83,7 +84,7 @@ html-test = Je suis <em>très</em> content de te voir!
 
 range-of-motion-test = Test d'amplitude de mouvement
 
-shared-photos = { $user_name } ajouté { $___1___ } nouvelles photos.
+shared-photos = { $user_name } ajouté { $unparsable-var-1 } nouvelles photos.
 
 liked-comment = { $user_name } a aimé votre commentaire sur son post.
 

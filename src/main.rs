@@ -65,7 +65,14 @@ fn load_strings<P: AsRef<Path>, S: ToString>(source: P, locale: S) -> Result<Has
         }
 
         // get the text of the string
-        let (text, _errs) = bundle.format(term, None).unwrap();
+        let result = bundle.format(term, None);
+        if result.is_none() {
+            return Err(Box::from("Only messages can be parsed at this moment, not terms or functions! Sorry!"));
+        }
+        let (text, errs) = result.unwrap();
+        for err in errs {
+            eprintln!("Error formatting string: {}", err);
+        }
 
         // save it
         strings.insert(term.to_owned(), (text, variables));
