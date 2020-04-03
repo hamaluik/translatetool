@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::boxed::Box;
 use std::error::Error;
 
-use reqwest::Client;
+use reqwest::blocking::Client;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -73,7 +73,7 @@ impl<'a, 'b> Translator<'a, 'b> {
         };
         let query = serde_json::to_string(&query)?;
 
-        let mut res = self
+        let res = self
             .client
             .post(&format!("https://translation.googleapis.com/v3/projects/{}/locations/global:translateText", self.project_id))
             .bearer_auth(self.token)
@@ -100,7 +100,7 @@ impl<'a, 'b> Translator<'a, 'b> {
     }
 
     fn get_languages_response(&self) -> Result<LRData, Box<dyn Error>> {
-        let mut res = self
+        let res = self
             .client
             .get(&format!("https://translation.googleapis.com/v3/projects/{}/locations/global/supportedLanguages?displayLanguageCode={}", self.project_id, self.language))
             .bearer_auth(self.token)

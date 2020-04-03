@@ -184,8 +184,8 @@ impl ServiceCredentials {
             let claims_token = jwt.sign(&self.credentials.private_key)?;
 
             // request an access token from Google
-            let client = reqwest::Client::new();
-            let mut res = client
+            let client = reqwest::blocking::Client::new();
+            let res = client
                 .post("https://www.googleapis.com/oauth2/v4/token")
                 .header(
                     reqwest::header::CONTENT_TYPE,
