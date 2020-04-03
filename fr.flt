@@ -1,8 +1,10 @@
-language-name = English
+# tt-lang-name
+language-name = Français
 
-hello-world = Hello, { $who }!
+hello-world = Hello, { $who }! Welcome to { -brand-name }!
 
-html-test = I am very glad to see you!
+# tt-hand-translated
+html-test = Je suis <em>très</em> content de te voir!
 
 shared-photos =
     { $user_name } { $photo_count ->

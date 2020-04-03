@@ -1,3 +1,4 @@
+# tt-lang-name
 language-name = English
 
 hello-world = Hello, { $who }!
