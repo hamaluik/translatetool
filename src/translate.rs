@@ -56,10 +56,6 @@ impl<'a, 'b> Translator<'a, 'b> {
     }
 
     pub fn translate(&self, phrase: &str) -> Result<String, Box<dyn Error>> {
-        if phrase == "<lang name>" {
-            return self.get_lang_name();
-        }
-
         // don't translate en -> en, just copy it over
         if self.language == "en" {
             return Ok(phrase.to_owned());

@@ -167,7 +167,25 @@ fn main() -> Result<(), Box<dyn Error>> {
                 };
 
                 if needs_translation {
-                    if let Some(pattern) = &message.value {
+                    // deal with language names
+                    let is_lang_name = if let Some(comment) = &message.comment {
+                        if let fluent_syntax::ast::Comment::Comment{ content } = comment {
+                            content.iter().any(|c| c.contains("tt-lang-name"))
+                        }
+                        else { false }
+                    }
+                    else { false };
+
+                    if is_lang_name {
+                        translations.insert(message.id.name, Some(match translator.get_lang_name() {
+                            Ok(t) => t,
+                            Err(e) => {
+                                log::warn!("failed to get language name: {:?}", e);
+                                "<INSERT LANGUAGE NAME HERE>".to_owned()
+                            }
+                        }));
+                    }
+                    else if let Some(pattern) = &message.value {
                         // prepare the pattern for translating by stripping placeables
                         let source_formatted: String = pattern.elements.iter().map(|pe| match pe {
                             fluent_syntax::ast::PatternElement::TextElement(s) => s,
@@ -190,116 +208,140 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    for t in translations {
-        log::debug!("translated `{}` => `{:?}`", t.0, t.1);
-    }
-
-    /*let mut english_source = load_strings(from_file, "en")?;
-    let old_english_source: HashMap<String, String> =
-        if out_path.exists() {
-            if let Some(diff_path) = diff_path {
-                load_strings(diff_path, "en")?
-                    .drain()
-                    .map(|(term, (text, vars))| (term, emplace_vars(text, vars)))
-                    .collect()
-            }
-            else {
-                HashMap::new()
-            }
-        }
-        else {
-            HashMap::new()
-        };
-    let old_translations: HashMap<String, String> =
-        if out_path.exists() {
-            load_strings(&out_path, locale)?
-                .drain()
-                .map(|(term, (text, vars))| (term, emplace_vars(text, vars)))
-                .collect()
-        }
-        else {
-            HashMap::new()
-        };
-
-    let max_key_width = english_source.keys().map(|k| k.len()).max().unwrap();
-    let pb = indicatif::ProgressBar::new(english_source
-        .iter()
-        .filter(|(k, v)| {
-            let term: &str = *k;
-            let (text, vars): &(String, Vec<String>) = v;
-
-            if let Some(old_text) = old_english_source.get(term) {
-                // the term did exist, but the text has been updated, so we need
-                // to re-translate
-                let text = emplace_vars(text.clone(), vars.clone());
-                &text != old_text
-            }
-            else {
-                // the term did _not_ exist, so we need a translations
-                true
-            }
-        })
-        .count() as u64);
-    pb.set_style(indicatif::ProgressStyle::default_bar().template(&format!(
-        "{{spinner}} [{{elapsed_precise}}] [{{wide_bar}}] {{prefix:{}}} {{pos}}/{{len}} ({{eta}})",
-        max_key_width
-    )));
-    let new_translations: Result<HashMap<String, String>, Box<dyn Error>> = english_source
-        .drain()
-        .filter(|(k, v)| {
-            let term: &str = k;
-            let (text, vars): &(String, Vec<String>) = v;
-
-            if let Some(old_text) = old_english_source.get(term) {
-                // the term did exist, but the text has been updated, so we need
-                // to re-translate
-                let text = emplace_vars(text.clone(), vars.clone());
-                &text != old_text
-            }
-            else {
-                // the term did _not_ exist, so we need a translations
-                true
-            }
-        })
-        .enumerate()
-        .map(|(i, (term, (text, variables)))| {
-            pb.set_position(i as u64);
-            pb.set_prefix(&term);
-
-            let mut translation: String =
-                if term == "language-name" && text == "English" {
-                    translator.translate("<lang name>")?
-                } else {
-                    translator.translate(&text)?
-                };
-
-            // reapply our variables
-            translation = emplace_vars(translation, variables);
-
-            Ok((term.to_owned(), translation))
-        })
-        .collect();
-    let mut new_translations = new_translations?;
-    pb.finish_with_message("translation complete!");
-
-    // now merge the existing translations together with the new ones
-    let mut translations = old_translations;
-    for (term, translation) in new_translations.drain() {
-        translations.insert(term, translation);
-    }
-
-    // sort the terms alphabetically
-    let mut translations: Vec<(String, String)> = translations.into_iter().collect();
-    translations.sort_by(|a, b| a.0.cmp(&b.0));
-
+    // now we have all the translations we need, time to reconstruct a translated .flt file
     let f = fs::File::create(&out_path)?;
     let mut file = BufWriter::new(&f);
 
-    for (term, translation) in translations.iter() {
-        let message = mung::decode_entities(translation);
-        file.write_fmt(format_args!("{} = {}\n\n", term, message))?;
+    fn write_comment<'ast, W: Write>(wtr: &mut W, comment: Option<&fluent_syntax::ast::Comment<'ast>>) -> std::io::Result<()> {
+        if let Some(comment) = comment {
+            match comment {
+                fluent_syntax::ast::Comment::Comment { content } => {
+                    for c in content {
+                        writeln!(wtr, "# {}", c)?;
+                    }
+                },
+                fluent_syntax::ast::Comment::GroupComment { content } => {
+                    for c in content {
+                        writeln!(wtr, "## {}", c)?;
+                    }
+                },
+                fluent_syntax::ast::Comment::ResourceComment { content } => {
+                    for c in content {
+                        writeln!(wtr, "### {}", c)?;
+                    }
+                },
+            }
+        }
+        Ok(())
     }
-    println!("translations saved to file: {}", out_path.display());*/
+
+    fn write_expression<'ast, W: Write>(wtr: &mut W, expression: &fluent_syntax::ast::Expression<'ast>) -> std::io::Result<()> {
+        match expression {
+            fluent_syntax::ast::Expression::InlineExpression(ie) => {
+                match ie {
+                    fluent_syntax::ast::InlineExpression::StringLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
+                    fluent_syntax::ast::InlineExpression::NumberLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
+                    fluent_syntax::ast::InlineExpression::FunctionReference { .. } => { write!(wtr, "___")?; },
+                    fluent_syntax::ast::InlineExpression::MessageReference { id, .. } => { write!(wtr, "{{ {} }}", id.name)?; },
+                    fluent_syntax::ast::InlineExpression::TermReference { id, .. } => { write!(wtr, "{{ -{} }}", id.name)?; },
+                    fluent_syntax::ast::InlineExpression::VariableReference { id } => { write!(wtr, "{{ ${} }}", id.name)?; },
+                    fluent_syntax::ast::InlineExpression::Placeable { .. } => { write!(wtr, "___")?; },
+                }
+            },
+            fluent_syntax::ast::Expression::SelectExpression { .. } => { write!(wtr, "___")?; },
+        }
+        Ok(())
+    }
+    
+    fn write_pattern<'ast, W: Write>(wtr: &mut W, pattern: &fluent_syntax::ast::Pattern<'ast>) -> std::io::Result<()> {
+        for element in &pattern.elements {
+            match element {
+                fluent_syntax::ast::PatternElement::TextElement(s) => { wtr.write_all((*s).as_bytes())?; }
+                fluent_syntax::ast::PatternElement::Placeable(e) => { write_expression(wtr, e)?; }
+            }
+        }
+        Ok(())
+    }
+
+    for entry in source.body.iter() {
+        if let fluent_syntax::ast::ResourceEntry::Entry(entry) = entry {
+            match entry {
+                fluent_syntax::ast::Entry::Term(t) => {
+                    write_comment(&mut file, t.comment.as_ref())?;
+                    write!(&mut file, "-{} = ", t.id.name)?;
+                    write_pattern(&mut file, &t.value)?;
+                    // TODO: write attributes
+                    writeln!(&mut file, "")?;
+                    writeln!(&mut file, "")?;
+                },
+                fluent_syntax::ast::Entry::Message(m) => {
+                    write_comment(&mut file, m.comment.as_ref())?;
+                    write!(&mut file, "{} = ", m.id.name)?;
+
+                    // see if we have a new translation for the message
+                    if translations.contains_key(m.id.name) {
+                        if let Some(msg) = translations.get(m.id.name).unwrap() {
+                            // convert each of the placeables
+                            let placeables: Vec<String> = if let Some(v) = &m.value {
+                                v.elements.iter().filter_map(|e| {
+                                    match e {
+                                        fluent_syntax::ast::PatternElement::Placeable(e) => {
+                                            let mut text: Vec<u8> = Vec::default();
+                                            write_expression(&mut text, e).expect("can write_expression on placeable");
+                                            let text = String::from_utf8(text).expect("valid utf-8");
+                                            Some(text)
+                                        },
+                                        _ => None,
+                                    }
+                                }).collect()
+                            }
+                            else { Vec::new() };
+
+                            let mut msg: String = msg.clone();
+                            for placeable in placeables.into_iter() {
+                                msg = msg.replacen("___", &placeable, 1);
+                            }
+                            file.write_all(msg.as_bytes())?;
+                        }
+                    }
+                    // see if there's already a hand-translated message
+                    else {
+                        let message = if let Some(existing) = find_message(&target_existing, m.id.name) {
+                            let hand_translated = if let Some(comment) = &existing.comment {
+                                if let fluent_syntax::ast::Comment::Comment{ content } = comment {
+                                    !content.iter().any(|c| c.contains("tt-hand-translated"))
+                                } else { false }
+                            }
+                            else { false };
+    
+                            if hand_translated {
+                                // use the existing translation!
+                                log::debug!("hand translated: {}", existing.id.name);
+                                write_comment(&mut file, existing.comment.as_ref())?;
+                                existing
+                            }
+                            else {
+                                m
+                            }
+                        } else { m };
+
+                        if let Some(value) = &message.value {
+                            write_pattern(&mut file, value)?;
+                        }
+                        // TODO: write attributes
+                    }
+
+                    writeln!(&mut file, "")?;
+                    writeln!(&mut file, "")?;
+                },
+                fluent_syntax::ast::Entry::Comment(c) => {
+                    write_comment(&mut file, Some(c))?;
+                    writeln!(&mut file, "")?;
+                    writeln!(&mut file, "")?;
+                },
+            }
+        }
+    }
 
     Ok(())
 }
