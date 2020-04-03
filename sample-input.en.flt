@@ -1,8 +1,6 @@
--brand-name = FireFox
-
 language-name = English
 
-hello-world = Hello, { $who }! Welcome to { -brand-name }!
+hello-world = Hello, { $who }!
 
 html-test = I am <em>very</em> glad to see you!
 

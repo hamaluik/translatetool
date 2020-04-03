@@ -242,6 +242,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         translations.insert(term, translation);
     }
 
+    // sort the terms alphabetically
+    let mut translations: Vec<(String, String)> = translations.into_iter().collect();
+    translations.sort_by(|a, b| a.0.cmp(&b.0));
+
     let f = fs::File::create(&out_path)?;
     let mut file = BufWriter::new(&f);
 
