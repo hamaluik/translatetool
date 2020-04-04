@@ -13,7 +13,7 @@ Tool for using Google Cloud to automatically translate simple Fluent `.flt` file
 
 ```
 $ tt --help
-tt 1.4.1
+tt 2.0.0
 Kenton Hamaluik <kenton@rehabtronics.com>
 
 
@@ -41,51 +41,10 @@ SUBCOMMANDS:
 
 ### Example:
 
-Translate the following `en.flt` file into French:
-
-```flt
-language-name = English
-
-hello-world = Hello, { $who }!
-
-html-test = I am <em>very</em> glad to see you!
-
-range-of-motion-test = Range of Motion Test
-
-shared-photos =
-    { $user_name } { $photo_count ->
-        [0] hasn't added any photos yet
-        [one] added a new photo
-       *[other] added { $photo_count } new photos
-    }.
-
-liked-comment =
-    { $user_name } liked your comment on { $user_gender ->
-        [male] his
-        [female] her
-       *[other] their
-    } post.
-```
-
-run:
+Translate the [`en.flt`](en.flt) file into French:
 
 ```bash
 $ tt -f en.flt -l fr -c gcloud_credentials.json
 ```
 
-then `fr.flt` will contain:
-
-```flt
-language-name = Français
-
-hello-world = Bonjour, { $who }!
-
-html-test = Je suis <em>très</em> content de te voir!
-
-range-of-motion-test = Test d'amplitude de mouvement
-
-shared-photos = { $user_name } ajouté { $unparsable-var-1 } nouvelles photos.
-
-liked-comment = { $user_name } a aimé votre commentaire sur son post.
-
-```
+The contents should then match [`fr.flt`](fr.flt).

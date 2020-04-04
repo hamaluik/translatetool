@@ -9,7 +9,6 @@ pub enum Errors {
     InvalidShell,
     InvalidLanguage,
     NoTranslations,
-    CantParseResource,
 }
 
 impl fmt::Display for Errors {

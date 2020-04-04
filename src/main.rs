@@ -11,6 +11,7 @@ mod errors;
 mod google_service_credentials;
 mod translate;
 
+/// Use the credentials file to sign in to obtain an oauth token for Google translate
 fn get_token_and_project_id(
     matches: &clap::ArgMatches,
 ) -> Result<(String, String), Box<dyn Error>> {
@@ -52,6 +53,57 @@ fn find_message<'ast>(resource: &'ast fluent_syntax::ast::Resource<'ast>, id: &s
         }
     }
     None
+}
+
+fn write_comment<'ast, W: Write>(wtr: &mut W, comment: Option<&fluent_syntax::ast::Comment<'ast>>) -> std::io::Result<()> {
+    if let Some(comment) = comment {
+        match comment {
+            fluent_syntax::ast::Comment::Comment { content } => {
+                for c in content {
+                    writeln!(wtr, "# {}", c)?;
+                }
+            },
+            fluent_syntax::ast::Comment::GroupComment { content } => {
+                for c in content {
+                    writeln!(wtr, "## {}", c)?;
+                }
+            },
+            fluent_syntax::ast::Comment::ResourceComment { content } => {
+                for c in content {
+                    writeln!(wtr, "### {}", c)?;
+                }
+            },
+        }
+    }
+    Ok(())
+}
+
+fn write_expression<'ast, W: Write>(wtr: &mut W, expression: &fluent_syntax::ast::Expression<'ast>) -> std::io::Result<()> {
+    match expression {
+        fluent_syntax::ast::Expression::InlineExpression(ie) => {
+            match ie {
+                fluent_syntax::ast::InlineExpression::StringLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
+                fluent_syntax::ast::InlineExpression::NumberLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
+                fluent_syntax::ast::InlineExpression::FunctionReference { .. } => { write!(wtr, "___")?; },
+                fluent_syntax::ast::InlineExpression::MessageReference { id, .. } => { write!(wtr, "{{ {} }}", id.name)?; },
+                fluent_syntax::ast::InlineExpression::TermReference { id, .. } => { write!(wtr, "{{ -{} }}", id.name)?; },
+                fluent_syntax::ast::InlineExpression::VariableReference { id } => { write!(wtr, "{{ ${} }}", id.name)?; },
+                fluent_syntax::ast::InlineExpression::Placeable { .. } => { write!(wtr, "___")?; },
+            }
+        },
+        fluent_syntax::ast::Expression::SelectExpression { .. } => { write!(wtr, "___")?; },
+    }
+    Ok(())
+}
+
+fn write_pattern<'ast, W: Write>(wtr: &mut W, pattern: &fluent_syntax::ast::Pattern<'ast>) -> std::io::Result<()> {
+    for element in &pattern.elements {
+        match element {
+            fluent_syntax::ast::PatternElement::TextElement(s) => { wtr.write_all((*s).as_bytes())?; }
+            fluent_syntax::ast::PatternElement::Placeable(e) => { write_expression(wtr, e)?; }
+        }
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -140,7 +192,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let source_outdated = continue_parsing(&diff_path.unwrap_or_default(), fluent_syntax::parser::parse(&source_outdated));
     let target_existing = continue_parsing(&out_path, fluent_syntax::parser::parse(&target_existing));
 
-    let mut translations: HashMap<&str, Option<String>> = HashMap::new();
+    //let mut translations: HashMap<&str, Option<String>> = HashMap::new();
+    let mut pending_translations: HashMap<&str, Option<String>> = HashMap::new();
 
     for entry in source.body.iter() {
         if let fluent_syntax::ast::ResourceEntry::Entry(entry) = entry {
@@ -177,7 +230,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     else { false };
 
                     if is_lang_name {
-                        translations.insert(message.id.name, Some(match translator.get_lang_name() {
+                        pending_translations.insert(message.id.name, Some(match translator.get_lang_name() {
                             Ok(t) => t,
                             Err(e) => {
                                 log::warn!("failed to get language name: {:?}", e);
@@ -192,76 +245,43 @@ fn main() -> Result<(), Box<dyn Error>> {
                             fluent_syntax::ast::PatternElement::Placeable(_) => "___",
                         }).collect();
 
-                        translations.insert(message.id.name, Some(match translator.translate(&source_formatted) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                log::warn!("failed to translate term `{}`: {:?}", message.id.name, e);
-                                source_formatted
-                            }
-                        }));
+                        pending_translations.insert(message.id.name, Some(source_formatted));
                     }
                     else {
-                        translations.insert(message.id.name, None);
+                        pending_translations.insert(message.id.name, None);
                     }
                 }
             }
         }
     }
+
+    let pb = indicatif::ProgressBar::new(pending_translations.len() as u64);
+    pb.set_style(indicatif::ProgressStyle::default_bar().template("{prefix} {spinner} [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})"));
+    pb.set_prefix(locale);
+
+    let translations: HashMap<&str, Option<String>> = pending_translations
+        .into_iter()
+        .map(|(id, value)| {
+            pb.inc(1);
+            if let Some(value) = value {
+                (id, Some(match translator.translate(&value) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        log::warn!("failed to translate term `{}`: {:?}", id, e);
+                        value
+                    }
+                }))
+            }
+            else {
+                (id, None)
+            }
+        })
+        .collect();
+    pb.finish();
 
     // now we have all the translations we need, time to reconstruct a translated .flt file
     let f = fs::File::create(&out_path)?;
     let mut file = BufWriter::new(&f);
-
-    fn write_comment<'ast, W: Write>(wtr: &mut W, comment: Option<&fluent_syntax::ast::Comment<'ast>>) -> std::io::Result<()> {
-        if let Some(comment) = comment {
-            match comment {
-                fluent_syntax::ast::Comment::Comment { content } => {
-                    for c in content {
-                        writeln!(wtr, "# {}", c)?;
-                    }
-                },
-                fluent_syntax::ast::Comment::GroupComment { content } => {
-                    for c in content {
-                        writeln!(wtr, "## {}", c)?;
-                    }
-                },
-                fluent_syntax::ast::Comment::ResourceComment { content } => {
-                    for c in content {
-                        writeln!(wtr, "### {}", c)?;
-                    }
-                },
-            }
-        }
-        Ok(())
-    }
-
-    fn write_expression<'ast, W: Write>(wtr: &mut W, expression: &fluent_syntax::ast::Expression<'ast>) -> std::io::Result<()> {
-        match expression {
-            fluent_syntax::ast::Expression::InlineExpression(ie) => {
-                match ie {
-                    fluent_syntax::ast::InlineExpression::StringLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
-                    fluent_syntax::ast::InlineExpression::NumberLiteral { value} => { write!(wtr, "{{ {} }}", *value)?; },
-                    fluent_syntax::ast::InlineExpression::FunctionReference { .. } => { write!(wtr, "___")?; },
-                    fluent_syntax::ast::InlineExpression::MessageReference { id, .. } => { write!(wtr, "{{ {} }}", id.name)?; },
-                    fluent_syntax::ast::InlineExpression::TermReference { id, .. } => { write!(wtr, "{{ -{} }}", id.name)?; },
-                    fluent_syntax::ast::InlineExpression::VariableReference { id } => { write!(wtr, "{{ ${} }}", id.name)?; },
-                    fluent_syntax::ast::InlineExpression::Placeable { .. } => { write!(wtr, "___")?; },
-                }
-            },
-            fluent_syntax::ast::Expression::SelectExpression { .. } => { write!(wtr, "___")?; },
-        }
-        Ok(())
-    }
-    
-    fn write_pattern<'ast, W: Write>(wtr: &mut W, pattern: &fluent_syntax::ast::Pattern<'ast>) -> std::io::Result<()> {
-        for element in &pattern.elements {
-            match element {
-                fluent_syntax::ast::PatternElement::TextElement(s) => { wtr.write_all((*s).as_bytes())?; }
-                fluent_syntax::ast::PatternElement::Placeable(e) => { write_expression(wtr, e)?; }
-            }
-        }
-        Ok(())
-    }
 
     for entry in source.body.iter() {
         if let fluent_syntax::ast::ResourceEntry::Entry(entry) = entry {
@@ -275,8 +295,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     writeln!(&mut file, "")?;
                 },
                 fluent_syntax::ast::Entry::Message(m) => {
-                    write_comment(&mut file, m.comment.as_ref())?;
-                    write!(&mut file, "{} = ", m.id.name)?;
 
                     // see if we have a new translation for the message
                     if translations.contains_key(m.id.name) {
@@ -301,23 +319,28 @@ fn main() -> Result<(), Box<dyn Error>> {
                             for placeable in placeables.into_iter() {
                                 msg = msg.replacen("___", &placeable, 1);
                             }
+                            write!(&mut file, "{} = ", m.id.name)?;
                             file.write_all(msg.as_bytes())?;
+                            // TODO: write attributes
                         }
                     }
                     // see if there's already a hand-translated message
                     else {
+                        // TODO: fix the hand-translated comments
+                        log::debug!("checking hand-translated for {}", m.id.name);
                         let message = if let Some(existing) = find_message(&target_existing, m.id.name) {
+                            log::debug!("found message in existing");
                             let hand_translated = if let Some(comment) = &existing.comment {
                                 if let fluent_syntax::ast::Comment::Comment{ content } = comment {
-                                    !content.iter().any(|c| c.contains("tt-hand-translated"))
+                                    content.iter().any(|c| c.contains("tt-hand-translated"))
                                 } else { false }
                             }
                             else { false };
+                            log::debug!("hand-translated: {}", hand_translated);
     
                             if hand_translated {
                                 // use the existing translation!
                                 log::debug!("hand translated: {}", existing.id.name);
-                                write_comment(&mut file, existing.comment.as_ref())?;
                                 existing
                             }
                             else {
@@ -325,6 +348,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                         } else { m };
 
+                        write_comment(&mut file, message.comment.as_ref())?;
+                        write!(&mut file, "{} = ", m.id.name)?;
                         if let Some(value) = &message.value {
                             write_pattern(&mut file, value)?;
                         }
@@ -336,7 +361,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 },
                 fluent_syntax::ast::Entry::Comment(c) => {
                     write_comment(&mut file, Some(c))?;
-                    writeln!(&mut file, "")?;
                     writeln!(&mut file, "")?;
                 },
             }
