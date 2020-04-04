@@ -1,6 +1,6 @@
 [package]
 name = "tt"
-version = "2.0.0"
+version = "2.0.1"
 authors = ["Kenton Hamaluik <kenton@rehabtronics.com>"]
 edition = "2018"
 
@@ -11,7 +11,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = "2.33"
 indicatif = "0.14"
-mung = "0.1"
 base64 = "0.12"
 rustls = "0.17"
 simplelog = "0.7"

@@ -122,7 +122,13 @@ fn write_pattern<'ast, W: Write>(wtr: &mut W, pattern: &fluent_syntax::ast::Patt
 
 fn main() -> Result<(), Box<dyn Error>> {
     simplelog::CombinedLogger::init(vec![
-        simplelog::TermLogger::new(simplelog::LevelFilter::Debug, simplelog::Config::default(), simplelog::TerminalMode::Mixed).expect("can init termlogger")
+        simplelog::TermLogger::new(
+            simplelog::LevelFilter::Debug,
+            simplelog::ConfigBuilder::new()
+            .add_filter_allow_str("tt")
+                .build(),
+            simplelog::TerminalMode::Mixed
+        ).expect("can init termlogger")
     ]).expect("can initiate logging");
     let matches = cli::build_cli().get_matches();
 
@@ -214,11 +220,16 @@ fn main() -> Result<(), Box<dyn Error>> {
             if let fluent_syntax::ast::Entry::Message(message) = &entry {
                 // check if we need to translate based on diffs
                 let needs_translation: bool = if let Some(outdated) = find_message(&source_outdated, message.id.name) {
+                    log::debug!("found existing term `{}` in diff", message.id.name);
+                    log::debug!("message.value = {:?}", message.value);
+                    log::debug!("outdated.value = {:?}", outdated.value);
+                    log::debug!("message.value != outdated.value => {}", message.value != outdated.value);
                     message.value != outdated.value
                 }
                 else {
                     true
                 };
+                log::debug!("term `{}` needs translation from diff: {}", message.id.name, needs_translation);
 
                 // disable translation if we have a hand-translated one
                 let needs_translation = if let Some(existing) = find_message(&target_existing, message.id.name) {
@@ -230,8 +241,10 @@ fn main() -> Result<(), Box<dyn Error>> {
                     else { needs_translation }
                 }
                 else {
-                    needs_translation
+                    // we always need translation if we don't have the message in the existing file
+                    true
                 };
+                log::debug!("term `{}` needs translation after checking hand-translated: {}", message.id.name, needs_translation);
 
                 if needs_translation {
                     // deal with language names
@@ -268,6 +281,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
     }
+
+    log::debug!("pending translations: {:?}", pending_translations);
 
     let pb = indicatif::ProgressBar::new(pending_translations.len() as u64);
     pb.set_style(indicatif::ProgressStyle::default_bar().template("{prefix} {spinner} [{elapsed_precise}] [{wide_bar}] {pos}/{len} ({eta})"));

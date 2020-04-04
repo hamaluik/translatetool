@@ -1,14 +1,12 @@
 ### This is just a sample `.flt` file to demonstrate translation capabilities.
 
-# Why not?
--brand-name = FireFox
-
 # By commenting a message with `tt-lang-name`, the contents of the message will
 # be replaced by the localized name of the language (English, Français, etc)
 # tt-lang-name
 language-name = English
 
-hello-world = Salut, { $who }! Bienvenue à { -brand-name }!
+# A more-or-less regular message
+hello-world = Hello, { $who }!
 
 # HTML is supported
 html-test = I am <em>very</em> glad to see you!
@@ -16,8 +14,17 @@ html-test = I am <em>very</em> glad to see you!
 ## Note that more advanced placeables like switches cannot be translated yet.
 
 # The $photo_count placeable won't be translated
-shared-photos = { $user_name } ___.
+shared-photos =
+    { $user_name } { $photo_count ->
+        [0] hasn't added any photos yet
+        [one] added a new photo
+       *[other] added { $photo_count } new photos
+    }.
 
 # nor will the $user_gender placeable
-liked-comment = { $user_name } liked your comment on ___ post.
-
+liked-comment =
+    { $user_name } liked your comment on { $user_gender ->
+        [male] his
+        [female] her
+       *[other] their
+    } post.
