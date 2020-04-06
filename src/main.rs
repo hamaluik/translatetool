@@ -324,7 +324,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     writeln!(&mut file, "")?;
                 },
                 fluent_syntax::ast::Entry::Message(m) => {
-
                     // see if we have a new translation for the message
                     if translations.contains_key(m.id.name) {
                         if let Some(msg) = translations.get(m.id.name).unwrap() {
@@ -366,15 +365,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             }
                             else { false };
                             log::debug!("hand-translated: {}", hand_translated);
-    
-                            if hand_translated {
-                                // use the existing translation!
-                                log::debug!("hand translated: {}", existing.id.name);
-                                existing
-                            }
-                            else {
-                                m
-                            }
+                            existing
                         } else { m };
 
                         write_comment(&mut file, message.comment.as_ref())?;
