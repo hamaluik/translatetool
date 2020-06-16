@@ -103,8 +103,10 @@ impl<'a, 'b> Translator<'a, 'b> {
             return Err(Box::from(super::errors::Errors::NoTranslations));
         }
 
-        Ok(res.translations[0]
-            .translated_text
+        let translation = &res.translations[0].translated_text;
+        let translation = escaper::decode_html(translation).map_err(|e| format!("failed to decode HTML entities: {:?}", e))?;
+
+        Ok(translation
             .replace("\n", "\n    ")
             .replace(" ", " "))
     }

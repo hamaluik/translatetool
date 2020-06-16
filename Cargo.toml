@@ -1,6 +1,6 @@
 [package]
 name = "tt"
-version = "2.0.2"
+version = "2.1.0"
 authors = ["Kenton Hamaluik <kenton@rehabtronics.com>"]
 edition = "2018"
 
@@ -15,3 +15,5 @@ base64 = "0.12"
 rustls = "0.17"
 simplelog = "0.7"
 log = { version = "0.4", features = ["max_level_debug", "release_max_level_info"] }
+escaper = "0.1"
+
