@@ -1,11 +1,11 @@
 // Copyright 2020 Kenton Hamaluik
-// 
+//
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
-// 
+//
 //     http://www.apache.org/licenses/LICENSE-2.0
-// 
+//
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -56,6 +56,18 @@ pub fn build_cli() -> App<'static, 'static> {
             .takes_value(true)
             .default_value(".")
             .help("the path to write the resulting .flt file into")
+        )
+        .arg(Arg::with_name("glossary")
+            .short("g")
+            .long("glossary")
+            .value_name("GLOSSARY")
+            .takes_value(true)
+            .help("The glossary name to use (stored in the us-central1 region)")
+        )
+        .arg(Arg::with_name("ignore-case")
+            .long("ignore-case")
+            .takes_value(false)
+            .help("Ignore case when using a glossary")
         )
         .subcommand(SubCommand::with_name("languages")
             .about("list all possible languages that the template can be translated into")
